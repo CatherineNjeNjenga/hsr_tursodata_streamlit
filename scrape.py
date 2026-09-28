@@ -1,6 +1,6 @@
 import requests
 
-url = "https://your-db.turso.io/v2/pipeline"
+url = "https://hsr-data-catherinenjenjenga.aws-eu-west-1.turso.io/v2/pipeline"
 headers = {"Authorization": f"Bearer {TURSO_TOKEN}"}
 
 payload = {
