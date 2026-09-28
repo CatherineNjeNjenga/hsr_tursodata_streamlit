@@ -26,62 +26,54 @@ def fetch_page(url):
 def parse_episode(html, url):
     soup = BeautifulSoup(html, "html.parser")
 
-    # Header metadata
+    # --- Header metadata ---
     header_spans = soup.select("span._11r14xt1")
     title = header_spans[0].get_text(strip=True) if len(header_spans) > 0 else ""
-    subtitle = header_spans[1].get_text(strip=True) if len(header_spans) > 1 else ""
     date = header_spans[2].get_text(strip=True) if len(header_spans) > 2 else ""
 
-    # Recommendations container
-    top10 = soup.select_one("div#sophias-top-10")
-    if not top10:
-        print(f"WARNING: no #sophias-top-10 found on {url}")
-        return []
+    # --- Guest name/role (from page body, before Top 10 section) ---
+    body_text = soup.get_text(" ", strip=True)
+    guest_name = ""
+    guest_role = "Guest"
+    # Look for a heading pattern near "Top 10"
+    top10_match = re.search(r"([A-Z][a-zA-Z'\-]+(?:\s[A-Z][a-zA-Z'\-]+)?)'s Top 10", body_text)
+    if top10_match:
+        guest_name = top10_match.group(1)
 
-    # Guest name/role live above the top-10 block
-    header_html = str(soup).split('id="sophias-top-10"')[0]
-    header_soup = BeautifulSoup(header_html, "html.parser")
-    guest_spans = header_soup.select("span.hxnnnr0")
-    guest_name = guest_spans[0].get_text(strip=True) if len(guest_spans) > 0 else ""
-    guest_role = guest_spans[1].get_text(strip=True) if len(guest_spans) > 1 else ""
+    # --- Recommendations: find every ShopMy link on the page ---
+    all_links = soup.find_all("a", href=True)
+    shopmy_links = [a for a in all_links if "shopmy" in a["href"].lower()]
 
-    # Each recommendation block
-    blocks = top10.select("div.j6zgbu0")
     rows = []
-    for i, block in enumerate(blocks, start=1):
-        spans = block.select("span.hxnnnr0")
-        if len(spans) < 4:
-            continue
+    for i, link in enumerate(shopmy_links, start=1):
+        product_name = link.get_text(strip=True)
+        product_link = link["href"]
 
-        product_span = spans[2]
-        link_tag = product_span.find("a", href=True)
-        product_name = product_span.get_text(strip=True)
-        product_link = link_tag["href"] if link_tag else ""
-        description = spans[3].get_text(strip=True)
-
-        # Classify link type
-        if "shopmy" in product_link:
-            link_type = "ShopMy"
-        elif product_link:
-            link_type = "Direct"
-        else:
-            link_type = "None"
+        # Walk up to the wrapper span, then find the sibling <p> for the description
+        parent_span = link.find_parent("span", class_="hxnnnr0")
+        description = ""
+        if parent_span:
+            # The description span is usually in the next <p> sibling
+            next_p = parent_span.find_next("p")
+            if next_p:
+                desc_span = next_p.find("span", class_="hxnnnr0")
+                if desc_span:
+                    description = desc_span.get_text(strip=True)
 
         rows.append({
             "row_id": i,
             "guest_name": guest_name,
-            "guest_role": "Guest",
+            "guest_role": guest_role,
             "episode_date": date,
             "product_name": product_name,
             "product_link": product_link,
-            "link_type": link_type,
-            "link_status": "Active" if product_link else "Placeholder",
+            "link_type": "ShopMy",
+            "link_status": "Active",
             "guest_description": description,
             "source_url": url,
         })
 
     return rows
-
 
 # ---------- WRITE TO TURSO ----------
 def turso_execute(sql, args):
