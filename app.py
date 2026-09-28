@@ -1,5 +1,5 @@
 import streamlit as st
-import libsql_client
+import libsql
 import pandas as pd
 import plotly.express as px
 
@@ -10,21 +10,24 @@ st.set_page_config(
     layout="wide",
 )
 
-# ---------- TURSO CLIENT (cached) ----------
+# ---------- TURSO CONNECTION (cached) ----------
 @st.cache_resource
-def get_client():
-    return libsql_client.create_client_sync(
-        url=st.secrets["turso"]["url"],
+def get_connection():
+    """Create a single Turso connection, reused across reruns."""
+    return libsql.connect(
+        database=st.secrets["turso"]["url"],
         auth_token=st.secrets["turso"]["token"],
     )
 
-client = get_client()
+conn = get_connection()
 
 # ---------- HELPER: RUN QUERY → DATAFRAME ----------
-@st.cache_data(ttl=300)  # cache for 5 minutes
+@st.cache_data(ttl=300)  # refresh every 5 minutes
 def run_query(sql: str) -> pd.DataFrame:
-    result = client.execute(sql)
-    return pd.DataFrame(result.rows, columns=result.columns)
+    result = conn.execute(sql)
+    rows = result.fetchall()
+    columns = [desc[0] for desc in result.description]
+    return pd.DataFrame(rows, columns=columns)
 
 # ---------- HEADER ----------
 st.title("📊 HSR Partnership Intelligence")
@@ -61,8 +64,7 @@ SELECT
     brand,
     COUNT(*)                    AS recommendation_count,
     COUNT(DISTINCT guest_name)  AS guest_count,
-    GROUP_CONCAT(DISTINCT main_category) AS categories,
-    MIN(price_tier)             AS sample_tier
+    GROUP_CONCAT(DISTINCT main_category) AS categories
 FROM recommendations
 GROUP BY brand
 ORDER BY recommendation_count DESC
