@@ -24,4 +24,3 @@ jobs:
           TURSO_URL: ${{ secrets.TURSO_URL }}
           TURSO_TOKEN: ${{ secrets.TURSO_TOKEN }}
         run: python scrape.py
-        run: python scrape.py
