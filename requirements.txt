@@ -2,3 +2,6 @@ streamlit
 libsql
 pandas
 plotly
+feedparser
+requests
+beautifulsoup4
