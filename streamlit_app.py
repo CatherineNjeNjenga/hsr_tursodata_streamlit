@@ -9,7 +9,7 @@ auth_token = st.secrets["turso"]["auth_token"]
 
 try:
     # Connect to your remote Turso Database
-    conn = libsql.connect(database=db_url, auth_token=auth_token)
+    conn = turso.connect(database=db_url, auth_token=auth_token)
     cursor = conn.cursor()
 
     st.success("Successfully connected to Turso!")
