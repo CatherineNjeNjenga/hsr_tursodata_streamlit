@@ -10,7 +10,7 @@ TURSO_TOKEN = os.environ["TURSO_TOKEN"]
 
 # Episode pages to scrape
 EPISODE_URLS = [
-    "https://hotsmartrich.com/p/i-let-ai-build-my-business",
+    "https://hotsmartrich.com/p/the-ai-strategy-that-runs-my-business",
 ]
 
 
