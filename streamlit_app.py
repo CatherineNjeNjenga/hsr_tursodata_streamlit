@@ -1,5 +1,5 @@
 import streamlit as st
-import turso
+import libsql
 
 st.title("My Turso Cloud Database App")
 
@@ -9,7 +9,7 @@ auth_token = st.secrets["turso"]["auth_token"]
 
 try:
     # Connect to your remote Turso Database
-    conn = turso.connect(database=db_url, auth_token=auth_token)
+    conn = libsql.connect(database=db_url, auth_token=auth_token)
     cursor = conn.cursor()
 
     st.success("Successfully connected to Turso!")
