@@ -1,0 +1,9 @@
+# Streamlit secrets
+.streamlit/secrets.toml
+
+# Python
+__pycache__/
+*.pyc
+
+# OS
+.DS_Store
