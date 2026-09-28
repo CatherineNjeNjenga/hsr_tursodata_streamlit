@@ -1,5 +1,5 @@
 import streamlit as st
-import libsql
+import turso
 
 st.title("My Turso Cloud Database App")
 
