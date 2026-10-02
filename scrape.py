@@ -61,14 +61,14 @@ def extract_guest_name(soup, body_text, title):
         filename = url.split("/")[-1].split("?")[0]
 
         raw = re.sub(r"\.(png|jpg|jpeg)$", "", filename, flags=re.IGNORECASE)
-        raw = re.sub(r"^[A-Z]{2,5}_", "", raw)          # strip HSR_, HRS_, etc.
-        raw = re.sub(r"_\d+_?$", "", raw)                # strip trailing _N or _N_
+        raw = re.sub(r"^[A-Z]{2,5}_", "", raw)
+        raw = re.sub(r"_\d+_?$", "", raw)
         raw = raw.rstrip("_")
 
         raw = raw.replace("_", " ")
         spaced = re.sub(r"(?<=[a-z])(?=[A-Z])", " ", raw)
         spaced = re.sub(r"\s+", " ", spaced).strip()
-        spaced = re.sub(r"(\w)\d+$", r"\1", spaced)      # Ukeleghe1 → Ukeleghe
+        spaced = re.sub(r"(\w)\d+$", r"\1", spaced)
         spaced = re.sub(r"^(Dr|Mr|Mrs|Ms)\s", r"\1. ", spaced)
 
         if spaced.lower() not in ("default", "cover", "image") and len(spaced.split()) >= 2:
@@ -200,16 +200,22 @@ def parse_episode(html, url):
 
     # --- Parse each block (linked AND unlinked) ---
     rows = []
-    for i, block in enumerate(target_blocks, start=1):
-        # Full block text is the source of truth for the description
-        full_text = block.get_text(" ", strip=True)
-        full_text = re.sub(r"^\d{1,2}[\.\)]?\s*", "", full_text).strip()
-        full_text = re.sub(r"\s+", " ", full_text)
+    for block in target_blocks:
+        raw_text = block.get_text(" ", strip=True)
+        raw_text = re.sub(r"\s+", " ", raw_text).strip()
 
+        # Skip the section subtitle ("her top 10 to live a hot, smart, rich life")
+        if "top 10 to live a" in raw_text.lower():
+            continue
+
+        # Skip blocks that don't start with a numbered item
+        if not re.match(r"^\d{1,2}[\.\)]\s", raw_text):
+            continue
+
+        full_text = re.sub(r"^\d{1,2}[\.\)]?\s*", "", raw_text).strip()
         if not full_text:
             continue
 
-        # Look for a link anywhere in the block
         product_name = ""
         product_link = ""
         link_type = "None"
@@ -227,7 +233,6 @@ def parse_episode(html, url):
             else:
                 link_type = "Direct"
         else:
-            # No link — derive name from text before first verb
             product_name = re.split(
                 r"\s+(?:is|are|gives|makes|means|helps|lets|keeps|has|have|because)\s+",
                 full_text,
@@ -236,7 +241,8 @@ def parse_episode(html, url):
             if len(product_name) > 60:
                 product_name = product_name[:60].rsplit(" ", 1)[0] + "…"
 
-        row_id = int(hashlib.sha256(f"{url}#{i}".encode()).hexdigest()[:8], 16)
+        # Stable row_id based on the product name (not its position)
+        row_id = int(hashlib.sha256(f"{url}#{product_name}".encode()).hexdigest()[:8], 16)
 
         rows.append({
             "row_id": row_id,
