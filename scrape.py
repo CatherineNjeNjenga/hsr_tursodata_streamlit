@@ -22,7 +22,6 @@ def fetch_page(url):
 
 # ---------- DISCOVERY ----------
 def discover_episode_urls():
-    """Scrape the HSR podcast listing page and return all /p/ episode URLs."""
     print(f"Fetching listing page: {PODCAST_LISTING_URL}")
     html = fetch_page(PODCAST_LISTING_URL)
     soup = BeautifulSoup(html, "html.parser")
@@ -48,19 +47,19 @@ def discover_episode_urls():
 def parse_episode(html, url):
     soup = BeautifulSoup(html, "html.parser")
 
-    # --- Header metadata ---
+    # Header metadata
     header_spans = soup.select("span._11r14xt1")
     title = header_spans[0].get_text(strip=True) if len(header_spans) > 0 else ""
     date = header_spans[2].get_text(strip=True) if len(header_spans) > 2 else ""
 
-    # --- Guest name from "X's Top 10" ---
+    # Guest name from "X's Top 10"
     body_text = soup.get_text(" ", strip=True)
     guest_name = ""
     m = re.search(r"([A-Z][a-zA-Z'\-]+(?:\s[A-Z][a-zA-Z'\-]+)?)'s Top 10", body_text)
     if m:
         guest_name = m.group(1)
 
-    # --- Find the "Top 10" heading ---
+    # Find the "Top 10" heading
     top10_heading = None
     for h in soup.find_all(["h1", "h2", "h3", "h4"]):
         if "top 10" in h.get_text(strip=True).lower():
@@ -71,18 +70,15 @@ def parse_episode(html, url):
         print(f"  No 'Top 10' heading found on {url}")
         return []
 
-    # --- Collect only the div.j6zgbu0 blocks that belong to this section ---
-    # Walk forward through the DOM, stopping at the next heading
+    # Collect only the div.j6zgbu0 blocks that belong to this section
     target_blocks = []
     for elem in top10_heading.next_elements:
-        # Stop when we reach another heading
         if getattr(elem, "name", None) in ["h1", "h2", "h3", "h4"]:
             break
-        # Collect recommendation blocks
         if getattr(elem, "name", None) == "div" and "j6zgbu0" in elem.get("class", []):
             target_blocks.append(elem)
 
-    # --- Parse each block ---
+    # Parse each block
     rows = []
     row_num = 0
     for block in target_blocks:
@@ -138,6 +134,7 @@ def parse_episode(html, url):
 
     return rows
 
+
 # ---------- TURSO ----------
 def turso_execute(sql, args=None):
     stmt = {"sql": sql}
@@ -156,7 +153,6 @@ def turso_execute(sql, args=None):
 
 
 def get_scraped_urls():
-    """Return the set of source_urls already in the recommendations table."""
     result = turso_execute("SELECT DISTINCT source_url FROM recommendations")
     try:
         rows = result["results"][0]["response"]["result"]["rows"]
