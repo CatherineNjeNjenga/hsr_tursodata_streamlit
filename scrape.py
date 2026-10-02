@@ -182,7 +182,7 @@ if __name__ == "__main__":
     already_scraped = get_scraped_urls()
     print(f"  {len(already_scraped)} episodes already in database")
 
-    new_urls = [u for u in all_urls if u not in already_scraped]
+    new_urls = [u for u in all_urls if u not in already_scraped][:1]
     print(f"  {len(new_urls)} new episodes to scrape")
 
     if not new_urls:
