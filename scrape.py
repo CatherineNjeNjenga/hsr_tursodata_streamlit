@@ -52,19 +52,43 @@ def parse_episode(html, url):
     title = header_spans[0].get_text(strip=True) if len(header_spans) > 0 else ""
     date = header_spans[2].get_text(strip=True) if len(header_spans) > 2 else ""
 
-    # Guest name from "X's Top 10"
-    body_text = soup.get_text(" ", strip=True)
+    # --- Guest name extraction ---
+    # Try the episode title first: "...with Dr. Sasha Hamdani"
     guest_name = ""
-    m = re.search(r"([A-Z][a-zA-Z'\-]+(?:\s[A-Z][a-zA-Z'\-]+)?)'s Top 10", body_text)
+    m = re.search(r"\bwith\s+([A-Z][a-zA-Z'\-\.]+(?:\s+[A-Z][a-zA-Z'\-\.]+){0,3})\s*$", title)
     if m:
-        guest_name = m.group(1)
+        guest_name = m.group(1).strip()
 
-    # Find the "Top 10" heading
+    # Fallback: look for "X's Top 10" heading inside the page
+    if not guest_name:
+        for h in soup.find_all(["h1", "h2", "h3", "h4"]):
+            heading_text = h.get_text(strip=True)
+            if "top 10" in heading_text.lower():
+                # Extract everything before "Top 10"
+                m2 = re.match(r"^(.+?)'?s?\s+Top 10", heading_text, re.IGNORECASE)
+                if m2:
+                    candidate = m2.group(1).strip()
+                    # Reject if it's clearly the host
+                    if candidate.lower() not in ("maggie", "maggie sellers reum", "host"):
+                        guest_name = candidate
+                break
+
+    # Log if we couldn't find the guest name
+    if not guest_name:
+        print(f"  WARNING: could not extract guest name from {url}")
+
+    # --- Find the "Top 10" heading ---
     top10_heading = None
     for h in soup.find_all(["h1", "h2", "h3", "h4"]):
-        if "top 10" in h.get_text(strip=True).lower():
-            top10_heading = h
-            break
+        heading_text = h.get_text(strip=True)
+        if "top 10" in heading_text.lower():
+            # Prefer the guest's section, not the host's
+            if guest_name and guest_name.split()[0].lower() in heading_text.lower():
+                top10_heading = h
+                break
+            # Keep as a candidate
+            if top10_heading is None:
+                top10_heading = h
 
     if not top10_heading:
         print(f"  No 'Top 10' heading found on {url}")
@@ -133,7 +157,6 @@ def parse_episode(html, url):
         })
 
     return rows
-
 
 # ---------- TURSO ----------
 def turso_execute(sql, args=None):
