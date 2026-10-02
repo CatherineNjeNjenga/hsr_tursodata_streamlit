@@ -62,7 +62,7 @@ def extract_guest_name(soup, body_text, title):
 
         # Strip extension and HRS_ prefix
         raw = re.sub(r"\.(png|jpg|jpeg)$", "", filename, flags=re.IGNORECASE)
-        raw = re.sub(r"^HRS_", "", raw, flags=re.IGNORECASE)
+        raw = re.sub(r"^[A-Z]{2,5}_", "", raw)
 
         # Strip trailing _N or _N_ patterns
         raw = re.sub(r"_\d+_?$", "", raw)
