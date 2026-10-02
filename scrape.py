@@ -153,15 +153,26 @@ def turso_execute(sql, args=None):
 
 
 def get_scraped_urls():
+    """Return the set of source_urls already in the recommendations table."""
     result = turso_execute("SELECT DISTINCT source_url FROM recommendations")
-    print(f"  DEBUG turso response keys: {list(result.keys())}")
-    print(f"  DEBUG full response: {result}")
-    return set()
     try:
         rows = result["results"][0]["response"]["result"]["rows"]
-        return {row[0] for row in rows if row and row[0]}
-    except (KeyError, IndexError, TypeError):
+    except (KeyError, IndexError, TypeError) as e:
+        print(f"  WARNING: unexpected Turso response shape: {e}")
         return set()
+
+    urls = set()
+    for row in rows:
+        if not row:
+            continue
+        cell = row[0]
+        if isinstance(cell, dict) and "value" in cell:
+            urls.add(cell["value"])
+        elif isinstance(cell, str):
+            urls.add(cell)
+
+    print(f"  Parsed {len(urls)} unique source_urls from Turso")
+    return urls
 
 
 def insert_rows_batch(rows):
