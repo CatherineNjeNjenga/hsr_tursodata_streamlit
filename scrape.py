@@ -23,38 +23,35 @@ def fetch_page(url):
 
 # ---------- DISCOVERY ----------
 def discover_episode_urls():
-    """Fetch the RSS feed using requests, then parse it with feedparser."""
     print(f"Fetching RSS feed: {RSS_FEED_URL}")
-    
     headers = {"User-Agent": USER_AGENT}
     resp = requests.get(RSS_FEED_URL, headers=headers, timeout=30)
     resp.raise_for_status()
-    
-    # Parse the raw XML string — this avoids feedparser's network quirks
     feed = feedparser.parse(resp.text)
-    
-    # Debug: print what feedparser saw
+
     print(f"  Feed title: {feed.feed.get('title', 'UNKNOWN')}")
     print(f"  Total entries found: {len(feed.entries)}")
-    
-    if len(feed.entries) == 0:
-        print(f"  Raw response (first 500 chars): {resp.text[:500]}")
-        return []
-    
+
+    # Print the first 3 links so we can see the format
+    for entry in feed.entries[:3]:
+        print(f"  Sample link: {entry.get('link', 'NO LINK')}")
+        print(f"  Sample guid: {entry.get('id', 'NO GUID')}")
+        print(f"  Sample title: {entry.get('title', 'NO TITLE')}")
+
     urls = []
     for entry in feed.entries:
         link = entry.get("link", "").strip()
-        if link and "hotsmartrich.com/p/" in link:
+        if link:
             urls.append(link)
-    
-    # Deduplicate
+
+    # Dedupe
     seen = set()
     unique = []
     for u in urls:
         if u not in seen:
             seen.add(u)
             unique.append(u)
-    
+
     return unique
 
 
