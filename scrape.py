@@ -8,8 +8,8 @@ from bs4 import BeautifulSoup
 TURSO_URL = os.environ["TURSO_URL"].replace("libsql://", "https://") + "/v2/pipeline"
 TURSO_TOKEN = os.environ["TURSO_TOKEN"]
 
-RSS_FEED_URL = "https://feeds.megaphone.fm/FLIGHTSTUDIOGROUPLTD3349407104"
-
+PODCAST_LISTING_URL = "https://hotsmartrich.com/t/podcast"
+BASE_URL = "https://hotsmartrich.com"
 USER_AGENT = "HSR-Scraper/1.0 (+https://hotsmartrich.com)"
 
 
@@ -23,28 +23,20 @@ def fetch_page(url):
 
 # ---------- DISCOVERY ----------
 def discover_episode_urls():
-    print(f"Fetching RSS feed: {RSS_FEED_URL}")
-    headers = {"User-Agent": USER_AGENT}
-    resp = requests.get(RSS_FEED_URL, headers=headers, timeout=30)
-    resp.raise_for_status()
-    feed = feedparser.parse(resp.text)
-
-    print(f"  Feed title: {feed.feed.get('title', 'UNKNOWN')}")
-    print(f"  Total entries found: {len(feed.entries)}")
-
-    # Print the first 3 links so we can see the format
-    for entry in feed.entries[:3]:
-        print(f"  Sample link: {entry.get('link', 'NO LINK')}")
-        print(f"  Sample guid: {entry.get('id', 'NO GUID')}")
-        print(f"  Sample title: {entry.get('title', 'NO TITLE')}")
+    """Scrape the HSR podcast listing page and return all /p/ episode URLs."""
+    print(f"Fetching listing page: {PODCAST_LISTING_URL}")
+    html = fetch_page(PODCAST_LISTING_URL)
+    soup = BeautifulSoup(html, "html.parser")
 
     urls = []
-    for entry in feed.entries:
-        link = entry.get("link", "").strip()
-        if link:
-            urls.append(link)
+    for a in soup.find_all("a", href=True):
+        href = a["href"]
+        # Match /p/{slug} episode URLs
+        if href.startswith("/p/") and "podcast" not in href:
+            full = BASE_URL + href
+            urls.append(full)
 
-    # Dedupe
+    # Deduplicate while preserving order
     seen = set()
     unique = []
     for u in urls:
@@ -52,6 +44,7 @@ def discover_episode_urls():
             seen.add(u)
             unique.append(u)
 
+    print(f"  Found {len(unique)} episodes on listing page")
     return unique
 
 
@@ -94,7 +87,6 @@ def parse_episode(html, url):
             "guest_name": guest_name,
             "guest_role": "Guest",
             "episode_date": date,
-            "episode_title": title,
             "product_name": product_name,
             "product_link": product_link,
             "link_type": "ShopMy",
@@ -170,18 +162,22 @@ def insert_rows_batch(rows):
     payload = {"requests": requests_list}
     headers = {"Authorization": f"Bearer {TURSO_TOKEN}"}
     r = requests.post(TURSO_URL, json=payload, headers=headers, timeout=120)
+    print(f"  Turso response status: {r.status_code}")
+    response_json = r.json()
+    for result in response_json.get("results", []):
+        if "error" in result or result.get("type") == "error":
+            print(f"  Turso error: {result}")
     r.raise_for_status()
-    return r.json()
+    return response_json
 
 
 # ---------- MAIN ----------
 if __name__ == "__main__":
-    print("Discovering episodes from RSS feed...")
+    print("Discovering episodes from listing page...")
     all_urls = discover_episode_urls()
-    print(f"  Found {len(all_urls)} episodes in feed")
 
     if not all_urls:
-        raise SystemExit("RSS feed returned no episodes — aborting.")
+        raise SystemExit("Listing page returned no episode URLs — aborting.")
 
     print("Checking which episodes are already in Turso...")
     already_scraped = get_scraped_urls()
