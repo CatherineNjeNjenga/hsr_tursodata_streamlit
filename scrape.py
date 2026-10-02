@@ -1,6 +1,7 @@
 import os
 import re
 import requests
+import hashlib
 from bs4 import BeautifulSoup
 
 # ---------- CONFIG ----------
@@ -53,59 +54,67 @@ def parse_episode(html, url):
     date = header_spans[2].get_text(strip=True) if len(header_spans) > 2 else ""
 
     # --- Guest name extraction ---
-    # Try the episode title first: "...with Dr. Sasha Hamdani"
     guest_name = ""
-    m = re.search(r"\bwith\s+([A-Z][a-zA-Z'\-\.]+(?:\s+[A-Z][a-zA-Z'\-\.]+){0,3})\s*$", title)
+    # Try the episode title: "...with Dr. Sasha Hamdani"
+    m = re.search(
+        r"\bwith\s+([A-Z][a-zA-Z'\-\.]+(?:\s+[A-Z][a-zA-Z'\-\.]+){0,3})\s*$",
+        title,
+    )
     if m:
         guest_name = m.group(1).strip()
 
-    # Fallback: look for "X's Top 10" heading inside the page
+    # Fallback: look for "X's Top 10" heading
     if not guest_name:
         for h in soup.find_all(["h1", "h2", "h3", "h4"]):
-            heading_text = h.get_text(strip=True)
-            if "top 10" in heading_text.lower():
-                # Extract everything before "Top 10"
-                m2 = re.match(r"^(.+?)'?s?\s+Top 10", heading_text, re.IGNORECASE)
+            text = h.get_text(strip=True)
+            if "top 10" in text.lower():
+                m2 = re.match(r"^(.+?)'?s?\s+Top 10", text, re.IGNORECASE)
                 if m2:
                     candidate = m2.group(1).strip()
-                    # Reject if it's clearly the host
                     if candidate.lower() not in ("maggie", "maggie sellers reum", "host"):
                         guest_name = candidate
                 break
 
-    # Log if we couldn't find the guest name
     if not guest_name:
         print(f"  WARNING: could not extract guest name from {url}")
 
-    # --- Find the "Top 10" heading ---
+    # --- Find the guest's Top 10 heading ---
     top10_heading = None
+    candidates = []
     for h in soup.find_all(["h1", "h2", "h3", "h4"]):
-        heading_text = h.get_text(strip=True)
-        if "top 10" in heading_text.lower():
-            # Prefer the guest's section, not the host's
-            if guest_name and guest_name.split()[0].lower() in heading_text.lower():
+        text = h.get_text(strip=True)
+        if "top 10" in text.lower():
+            candidates.append(h)
+
+    # Prefer the one whose text contains the guest's first name
+    if guest_name:
+        first_name = guest_name.split()[0].lower()
+        for h in candidates:
+            if first_name in h.get_text(strip=True).lower():
                 top10_heading = h
                 break
-            # Keep as a candidate
-            if top10_heading is None:
-                top10_heading = h
+
+    # Otherwise take the first candidate
+    if top10_heading is None and candidates:
+        top10_heading = candidates[0]
 
     if not top10_heading:
         print(f"  No 'Top 10' heading found on {url}")
         return []
 
-    # Collect only the div.j6zgbu0 blocks that belong to this section
+    # --- Collect div.j6zgbu0 blocks between this heading and the next h1/h2 ---
     target_blocks = []
     for elem in top10_heading.next_elements:
-        if getattr(elem, "name", None) in ["h1", "h2", "h3", "h4"]:
+        name = getattr(elem, "name", None)
+        # Stop at the next top-level heading
+        if name in ["h1", "h2"]:
             break
-        if getattr(elem, "name", None) == "div" and "j6zgbu0" in elem.get("class", []):
+        if name == "div" and "j6zgbu0" in elem.get("class", []):
             target_blocks.append(elem)
 
-    # Parse each block
+    # --- Parse each block ---
     rows = []
-    row_num = 0
-    for block in target_blocks:
+    for i, block in enumerate(target_blocks, start=1):
         spans = block.find_all("span", class_="hxnnnr0")
         if len(spans) < 2:
             continue
@@ -114,13 +123,13 @@ def parse_episode(html, url):
         product_link = ""
         description = ""
 
-        for i, span in enumerate(spans):
+        for j, span in enumerate(spans):
             link = span.find("a", href=True)
             if link:
                 product_name = link.get_text(strip=True)
                 product_link = link["href"]
-                if i + 1 < len(spans):
-                    description = spans[i + 1].get_text(" ", strip=True)
+                if j + 1 < len(spans):
+                    description = spans[j + 1].get_text(" ", strip=True)
                 break
 
         if not product_name:
@@ -142,9 +151,12 @@ def parse_episode(html, url):
             else:
                 link_type = "Direct"
 
-        row_num += 1
+        # Globally unique row_id based on source_url + index
+        # Using a hash so re-runs produce the same ID (idempotent)
+        row_id = int(hashlib.sha256(f"{url}#{i}".encode()).hexdigest()[:8], 16)
+
         rows.append({
-            "row_id": row_num,
+            "row_id": row_id,
             "guest_name": guest_name,
             "guest_role": "Guest",
             "episode_date": date,
