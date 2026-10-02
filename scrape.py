@@ -53,65 +53,62 @@ def parse_episode(html, url):
     title = header_spans[0].get_text(strip=True) if len(header_spans) > 0 else ""
     date = header_spans[2].get_text(strip=True) if len(header_spans) > 2 else ""
 
-    # --- Guest name from "X's Top 10" heading ---
+    # --- Guest name from "X's Top 10" ---
     body_text = soup.get_text(" ", strip=True)
     guest_name = ""
     m = re.search(r"([A-Z][a-zA-Z'\-]+(?:\s[A-Z][a-zA-Z'\-]+)?)'s Top 10", body_text)
     if m:
         guest_name = m.group(1)
 
-    # --- Locate the recommendations section ---
-    top10_match = re.search(
-        r"Top 10(.*?)(?:Favourite Part|Something That People|Hot, Smart, Rich|Reply|$)",
-        body_text,
-        re.DOTALL | re.IGNORECASE,
-    )
-    top10_text = top10_match.group(1) if top10_match else ""
-
-    # --- Extract numbered items: "01. ...", "02. ..." ---
-    items = re.findall(
-        r"(\d{2})\.\s+(.+?)(?=\s*\d{2}\.\s+|$)",
-        top10_text,
-        re.DOTALL,
-    )
-
-    # --- Find all <a> links on the page, indexed by their visible text ---
-    page_links = []
-    for a in soup.find_all("a", href=True):
-        text = a.get_text(strip=True)
-        if text:
-            page_links.append((text.lower(), a["href"]))
+    # --- Each recommendation is a div.j6zgbu0 block ---
+    blocks = soup.select("div.j6zgbu0")
 
     rows = []
-    for i, (num, description) in enumerate(items, start=1):
-        description = re.sub(r"\s+", " ", description).strip()
+    row_num = 0
+    for block in blocks:
+        spans = block.find_all("span", class_="hxnnnr0")
+        if len(spans) < 2:
+            continue
 
-        # Extract product name: text before the first descriptive verb
-        product_name = re.split(
-            r"\s+(?:is|are|gives|makes|means|helps|lets|keeps|means)\s+",
-            description,
-            maxsplit=1,
-        )[0].strip()
-
-        # Try to match a link whose visible text appears in the description
+        # Find the span that contains an <a> tag — that's the product
+        product_name = ""
         product_link = ""
-        link_type = "None"
-        link_status = "Placeholder"
+        description = ""
 
-        for text, href in page_links:
-            if text in description.lower() or text in product_name.lower():
-                product_link = href
-                link_status = "Active"
-                if "shopmy" in href.lower():
-                    link_type = "ShopMy"
-                elif "amzn" in href.lower():
-                    link_type = "Amazon"
-                else:
-                    link_type = "Direct"
+        for i, span in enumerate(spans):
+            link = span.find("a", href=True)
+            if link:
+                product_name = link.get_text(strip=True)
+                product_link = link["href"]
+                # Description is typically the next span
+                if i + 1 < len(spans):
+                    description = spans[i + 1].get_text(" ", strip=True)
                 break
 
+        # If no link was found, treat the block text as a plain recommendation
+        if not product_name:
+            full_text = block.get_text(" ", strip=True)
+            cleaned = re.sub(r"^\d{1,2}[\.\)]?\s*", "", full_text).strip()
+            if not cleaned:
+                continue
+            product_name = cleaned[:80]
+            description = cleaned
+
+        # Classify the link
+        link_type = "None"
+        link_status = "Placeholder"
+        if product_link:
+            link_status = "Active"
+            if "shopmy" in product_link.lower():
+                link_type = "ShopMy"
+            elif "amzn" in product_link.lower():
+                link_type = "Amazon"
+            else:
+                link_type = "Direct"
+
+        row_num += 1
         rows.append({
-            "row_id": i,
+            "row_id": row_num,
             "guest_name": guest_name,
             "guest_role": "Guest",
             "episode_date": date,
@@ -124,7 +121,6 @@ def parse_episode(html, url):
         })
 
     return rows
-
 
 # ---------- TURSO ----------
 def turso_execute(sql, args=None):
