@@ -23,7 +23,6 @@ def fetch_page(url):
 
 # ---------- DISCOVERY ----------
 def discover_episode_urls():
-    """Scrape the HSR podcast listing page and return all /p/ episode URLs."""
     print(f"Fetching listing page: {PODCAST_LISTING_URL}")
     html = fetch_page(PODCAST_LISTING_URL)
     soup = BeautifulSoup(html, "html.parser")
@@ -45,12 +44,12 @@ def discover_episode_urls():
     return unique
 
 
-# ---------- PARSE ----------
+# ---------- GUEST NAME EXTRACTION ----------
 def extract_guest_name(soup, body_text, title):
     """
     Extract guest name using a priority chain:
     1. og:image filename (HRS_DrSashaHamdani_2_.png)
-    2. og:description "with X" pattern
+    2. og:description / twitter:description "with X" pattern
     3. twitter:title / og:title "with X" pattern
     4. Intro paragraph patterns
     5. "X's Top 10" heading
@@ -60,24 +59,28 @@ def extract_guest_name(soup, body_text, title):
     if og_image and og_image.get("content"):
         url = og_image["content"]
         filename = url.split("/")[-1].split("?")[0]
-        # Match pattern: HRS_DrSashaHamdani_2_.png or HRS_SophiaAmoruso.jpg
-        m = re.match(r"^(?:HRS_)?(.+?)(?:_\d+)?\.(?:png|jpg|jpeg)$", filename, re.IGNORECASE)
+        m = re.match(
+            r"^(?:HRS_)?(.+?)(?:_\d+)?\.(?:png|jpg|jpeg)$",
+            filename,
+            re.IGNORECASE,
+        )
         if m:
             raw = m.group(1)
-            # Skip if it's a generic/non-name file
             if raw.lower() not in ("default", "cover", "image", "hsr"):
                 # Convert camelCase or underscores to words
-                # DrSashaHamdani → Dr Sasha Hamdani
                 spaced = re.sub(r"(?<=[a-z])(?=[A-Z])", " ", raw)
-                spaced = spaced.replace("_", " ").replace(".", ". ").strip()
+                spaced = spaced.replace("_", " ").strip()
                 spaced = re.sub(r"\s+", " ", spaced)
-                # Only accept if 2+ words
+                # Restore periods in titles like "Dr"
+                spaced = re.sub(r"^(Dr|Mr|Mrs|Ms)\s", r"\1. ", spaced)
                 if len(spaced.split()) >= 2:
                     return spaced
 
-    # --- Priority 2: og:description or twitter:description "with X" ---
+    # --- Priority 2: og:description / twitter:description ---
     for meta_prop in ("og:description", "twitter:description"):
-        tag = soup.find("meta", property=meta_prop) or soup.find("meta", attrs={"name": meta_prop})
+        tag = soup.find("meta", property=meta_prop) or soup.find(
+            "meta", attrs={"name": meta_prop}
+        )
         if tag and tag.get("content"):
             text = tag["content"]
             m = re.search(
@@ -87,9 +90,11 @@ def extract_guest_name(soup, body_text, title):
             if m:
                 return m.group(1).strip()
 
-    # --- Priority 3: twitter:title / og:title "with X" ---
+    # --- Priority 3: twitter:title / og:title ---
     for meta_prop in ("twitter:title", "og:title"):
-        tag = soup.find("meta", attrs={"name": meta_prop}) or soup.find("meta", property=meta_prop)
+        tag = soup.find("meta", attrs={"name": meta_prop}) or soup.find(
+            "meta", property=meta_prop
+        )
         if tag and tag.get("content"):
             text = tag["content"]
             m = re.search(
@@ -124,8 +129,11 @@ def extract_guest_name(soup, body_text, title):
 
     return ""
 
+
+# ---------- PARSE ----------
 def parse_episode(html, url):
     soup = BeautifulSoup(html, "html.parser")
+    body_text = soup.get_text(" ", strip=True)
 
     # --- Header metadata ---
     header_spans = soup.select("span._11r14xt1")
@@ -156,11 +164,10 @@ def parse_episode(html, url):
     if not date:
         print(f"  WARNING: no date found on {url}")
 
-    # --- Guest name: from episode title first ---
+    # --- Guest name via priority chain ---
     guest_name = extract_guest_name(soup, body_text, title)
     if not guest_name:
         print(f"  WARNING: could not extract guest name from {url}")
-
 
     # --- Find the guest's Top 10 heading ---
     top10_heading = None
@@ -171,7 +178,7 @@ def parse_episode(html, url):
             candidates.append(h)
 
     if guest_name:
-        first_name = guest_name.split()[0].lower()
+        first_name = guest_name.split()[0].lower().rstrip(".")
         for h in candidates:
             if first_name in h.get_text(strip=True).lower():
                 top10_heading = h
@@ -232,7 +239,6 @@ def parse_episode(html, url):
             else:
                 link_type = "Direct"
 
-        # Deterministic, globally unique row_id
         row_id = int(hashlib.sha256(f"{url}#{i}".encode()).hexdigest()[:8], 16)
 
         rows.append({
@@ -269,7 +275,6 @@ def turso_execute(sql, args=None):
 
 
 def get_scraped_urls():
-    """Return the set of source_urls already in the recommendations table."""
     result = turso_execute("SELECT DISTINCT source_url FROM recommendations")
     try:
         rows = result["results"][0]["response"]["result"]["rows"]
