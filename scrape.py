@@ -154,6 +154,9 @@ def turso_execute(sql, args=None):
 
 def get_scraped_urls():
     result = turso_execute("SELECT DISTINCT source_url FROM recommendations")
+    print(f"  DEBUG turso response keys: {list(result.keys())}")
+    print(f"  DEBUG full response: {result}")
+    return set()
     try:
         rows = result["results"][0]["response"]["result"]["rows"]
         return {row[0] for row in rows if row and row[0]}
