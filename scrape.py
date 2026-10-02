@@ -119,7 +119,7 @@ def extract_guest_name(soup, body_text, title):
     for h in soup.find_all(["h1", "h2", "h3", "h4"]):
         text = h.get_text(strip=True)
         if "top 10" in text.lower():
-            m = re.match(r"^(.+?)'?s?\s+Top 10", text, re.IGNORECASE)
+            m = (r"^(.+?)'?s?\s+Top 10", text, re.IGNORECASE)
             if m:
                 candidate = m.group(1).strip()
                 if candidate.lower() not in ("maggie", "maggie sellers reum", "host"):
@@ -209,10 +209,10 @@ def parse_episode(html, url):
             continue
 
         # Skip blocks that don't start with a numbered item
-        if not re.match(r"^\d{1,2}[\.\)]\s", raw_text):
+        if not re.match(r"^\d{1,2}\s*[\.\)]?\s", raw_text):
             continue
 
-        full_text = re.sub(r"^\d{1,2}[\.\)]?\s*", "", raw_text).strip()
+        full_text = re.sub(r"^\d{1,2}\s*[\.\)]?\s*", "", raw_text).strip()
         if not full_text:
             continue
 
