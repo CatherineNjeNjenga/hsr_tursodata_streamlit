@@ -48,7 +48,7 @@ def discover_episode_urls():
 def extract_guest_name(soup, body_text, title):
     """
     Extract guest name using a priority chain:
-    1. og:image filename (HRS_DrSashaHamdani_2_.png)
+    1. og:image filename (HSR_DrSashaHamdani_2_.png)
     2. og:description / twitter:description "with X" pattern
     3. twitter:title / og:title "with X" pattern
     4. Intro paragraph patterns
@@ -60,28 +60,18 @@ def extract_guest_name(soup, body_text, title):
         url = og_image["content"]
         filename = url.split("/")[-1].split("?")[0]
 
-        # Strip extension and HRS_ prefix
         raw = re.sub(r"\.(png|jpg|jpeg)$", "", filename, flags=re.IGNORECASE)
-        raw = re.sub(r"^[A-Z]{2,5}_", "", raw)
-
-        # Strip trailing _N or _N_ patterns
-        raw = re.sub(r"_\d+_?$", "", raw)
+        raw = re.sub(r"^[A-Z]{2,5}_", "", raw)          # strip HSR_, HRS_, etc.
+        raw = re.sub(r"_\d+_?$", "", raw)                # strip trailing _N or _N_
         raw = raw.rstrip("_")
 
-        # Convert underscores and camelCase to spaces
         raw = raw.replace("_", " ")
         spaced = re.sub(r"(?<=[a-z])(?=[A-Z])", " ", raw)
-
-        # Collapse spaces
         spaced = re.sub(r"\s+", " ", spaced).strip()
-
-        # Strip trailing digits attached to a word (Ukeleghe1 → Ukeleghe)
-        spaced = re.sub(r"(\w)\d+$", r"\1", spaced)
-
-        # Restore periods in titles
+        spaced = re.sub(r"(\w)\d+$", r"\1", spaced)      # Ukeleghe1 → Ukeleghe
         spaced = re.sub(r"^(Dr|Mr|Mrs|Ms)\s", r"\1. ", spaced)
 
-        if spaced.lower() not in ("default", "cover", "image", "hsr") and len(spaced.split()) >= 2:
+        if spaced.lower() not in ("default", "cover", "image") and len(spaced.split()) >= 2:
             return spaced
 
     # --- Priority 2: og:description / twitter:description ---
@@ -147,7 +137,7 @@ def parse_episode(html, url):
     header_spans = soup.select("span._11r14xt1")
     title = header_spans[0].get_text(strip=True) if len(header_spans) > 0 else ""
 
-    # --- Date: extract by pattern, not by position ---
+    # --- Date: extract by pattern ---
     date = ""
     date_patterns = [
         r"\b\d{4}-\d{2}-\d{2}\b",
@@ -172,7 +162,7 @@ def parse_episode(html, url):
     if not date:
         print(f"  WARNING: no date found on {url}")
 
-    # --- Guest name via priority chain ---
+    # --- Guest name ---
     guest_name = extract_guest_name(soup, body_text, title)
     if not guest_name:
         print(f"  WARNING: could not extract guest name from {url}")
@@ -208,37 +198,27 @@ def parse_episode(html, url):
         if name == "div" and "j6zgbu0" in elem.get("class", []):
             target_blocks.append(elem)
 
-    # --- Parse each block ---
+    # --- Parse each block (linked AND unlinked) ---
     rows = []
     for i, block in enumerate(target_blocks, start=1):
-        spans = block.find_all("span", class_="hxnnnr0")
-        if len(spans) < 2:
+        # Full block text is the source of truth for the description
+        full_text = block.get_text(" ", strip=True)
+        full_text = re.sub(r"^\d{1,2}[\.\)]?\s*", "", full_text).strip()
+        full_text = re.sub(r"\s+", " ", full_text)
+
+        if not full_text:
             continue
 
+        # Look for a link anywhere in the block
         product_name = ""
         product_link = ""
-        description = ""
-
-        for j, span in enumerate(spans):
-            link = span.find("a", href=True)
-            if link:
-                product_name = link.get_text(strip=True)
-                product_link = link["href"]
-                if j + 1 < len(spans):
-                    description = spans[j + 1].get_text(" ", strip=True)
-                break
-
-        if not product_name:
-            full_text = block.get_text(" ", strip=True)
-            cleaned = re.sub(r"^\d{1,2}[\.\)]?\s*", "", full_text).strip()
-            if not cleaned:
-                continue
-            product_name = cleaned[:80]
-            description = cleaned
-
         link_type = "None"
         link_status = "Placeholder"
-        if product_link:
+
+        link = block.find("a", href=True)
+        if link:
+            product_name = link.get_text(strip=True)
+            product_link = link["href"]
             link_status = "Active"
             if "shopmy" in product_link.lower():
                 link_type = "ShopMy"
@@ -246,6 +226,15 @@ def parse_episode(html, url):
                 link_type = "Amazon"
             else:
                 link_type = "Direct"
+        else:
+            # No link — derive name from text before first verb
+            product_name = re.split(
+                r"\s+(?:is|are|gives|makes|means|helps|lets|keeps|has|have|because)\s+",
+                full_text,
+                maxsplit=1,
+            )[0].strip()
+            if len(product_name) > 60:
+                product_name = product_name[:60].rsplit(" ", 1)[0] + "…"
 
         row_id = int(hashlib.sha256(f"{url}#{i}".encode()).hexdigest()[:8], 16)
 
@@ -258,7 +247,7 @@ def parse_episode(html, url):
             "product_link": product_link,
             "link_type": link_type,
             "link_status": link_status,
-            "guest_description": description,
+            "guest_description": full_text,
             "source_url": url,
         })
 
