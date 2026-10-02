@@ -30,12 +30,9 @@ def discover_episode_urls():
     urls = []
     for a in soup.find_all("a", href=True):
         href = a["href"]
-        # Match /p/{slug} episode URLs
         if href.startswith("/p/") and "podcast" not in href:
-            full = BASE_URL + href
-            urls.append(full)
+            urls.append(BASE_URL + href)
 
-    # Deduplicate while preserving order
     seen = set()
     unique = []
     for u in urls:
@@ -51,35 +48,67 @@ def discover_episode_urls():
 def parse_episode(html, url):
     soup = BeautifulSoup(html, "html.parser")
 
-    # Header metadata
+    # --- Header metadata ---
     header_spans = soup.select("span._11r14xt1")
     title = header_spans[0].get_text(strip=True) if len(header_spans) > 0 else ""
     date = header_spans[2].get_text(strip=True) if len(header_spans) > 2 else ""
 
-    # Guest name from the "X's Top 10" heading
+    # --- Guest name from "X's Top 10" heading ---
     body_text = soup.get_text(" ", strip=True)
     guest_name = ""
     m = re.search(r"([A-Z][a-zA-Z'\-]+(?:\s[A-Z][a-zA-Z'\-]+)?)'s Top 10", body_text)
     if m:
         guest_name = m.group(1)
 
-    # Recommendations: every ShopMy link on the page
-    all_links = soup.find_all("a", href=True)
-    shopmy_links = [a for a in all_links if "shopmy" in a["href"].lower()]
+    # --- Locate the recommendations section ---
+    top10_match = re.search(
+        r"Top 10(.*?)(?:Favourite Part|Something That People|Hot, Smart, Rich|Reply|$)",
+        body_text,
+        re.DOTALL | re.IGNORECASE,
+    )
+    top10_text = top10_match.group(1) if top10_match else ""
+
+    # --- Extract numbered items: "01. ...", "02. ..." ---
+    items = re.findall(
+        r"(\d{2})\.\s+(.+?)(?=\s*\d{2}\.\s+|$)",
+        top10_text,
+        re.DOTALL,
+    )
+
+    # --- Find all <a> links on the page, indexed by their visible text ---
+    page_links = []
+    for a in soup.find_all("a", href=True):
+        text = a.get_text(strip=True)
+        if text:
+            page_links.append((text.lower(), a["href"]))
 
     rows = []
-    for i, link in enumerate(shopmy_links, start=1):
-        product_name = link.get_text(strip=True)
-        product_link = link["href"]
+    for i, (num, description) in enumerate(items, start=1):
+        description = re.sub(r"\s+", " ", description).strip()
 
-        parent_span = link.find_parent("span", class_="hxnnnr0")
-        description = ""
-        if parent_span:
-            next_p = parent_span.find_next("p")
-            if next_p:
-                desc_span = next_p.find("span", class_="hxnnnr0")
-                if desc_span:
-                    description = desc_span.get_text(strip=True)
+        # Extract product name: text before the first descriptive verb
+        product_name = re.split(
+            r"\s+(?:is|are|gives|makes|means|helps|lets|keeps|means)\s+",
+            description,
+            maxsplit=1,
+        )[0].strip()
+
+        # Try to match a link whose visible text appears in the description
+        product_link = ""
+        link_type = "None"
+        link_status = "Placeholder"
+
+        for text, href in page_links:
+            if text in description.lower() or text in product_name.lower():
+                product_link = href
+                link_status = "Active"
+                if "shopmy" in href.lower():
+                    link_type = "ShopMy"
+                elif "amzn" in href.lower():
+                    link_type = "Amazon"
+                else:
+                    link_type = "Direct"
+                break
 
         rows.append({
             "row_id": i,
@@ -88,8 +117,8 @@ def parse_episode(html, url):
             "episode_date": date,
             "product_name": product_name,
             "product_link": product_link,
-            "link_type": "ShopMy",
-            "link_status": "Active",
+            "link_type": link_type,
+            "link_status": link_status,
             "guest_description": description,
             "source_url": url,
         })
@@ -125,7 +154,6 @@ def get_scraped_urls():
 
 
 def insert_rows_batch(rows):
-    """Insert all rows in one Turso pipeline request."""
     if not rows:
         return
 
@@ -182,7 +210,7 @@ if __name__ == "__main__":
     already_scraped = get_scraped_urls()
     print(f"  {len(already_scraped)} episodes already in database")
 
-    new_urls = [u for u in all_urls if u not in already_scraped][:1]
+    new_urls = [u for u in all_urls if u not in already_scraped]
     print(f"  {len(new_urls)} new episodes to scrape")
 
     if not new_urls:
