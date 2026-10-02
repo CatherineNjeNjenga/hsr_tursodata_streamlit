@@ -46,6 +46,84 @@ def discover_episode_urls():
 
 
 # ---------- PARSE ----------
+def extract_guest_name(soup, body_text, title):
+    """
+    Extract guest name using a priority chain:
+    1. og:image filename (HRS_DrSashaHamdani_2_.png)
+    2. og:description "with X" pattern
+    3. twitter:title / og:title "with X" pattern
+    4. Intro paragraph patterns
+    5. "X's Top 10" heading
+    """
+    # --- Priority 1: og:image filename ---
+    og_image = soup.find("meta", property="og:image")
+    if og_image and og_image.get("content"):
+        url = og_image["content"]
+        filename = url.split("/")[-1].split("?")[0]
+        # Match pattern: HRS_DrSashaHamdani_2_.png or HRS_SophiaAmoruso.jpg
+        m = re.match(r"^(?:HRS_)?(.+?)(?:_\d+)?\.(?:png|jpg|jpeg)$", filename, re.IGNORECASE)
+        if m:
+            raw = m.group(1)
+            # Skip if it's a generic/non-name file
+            if raw.lower() not in ("default", "cover", "image", "hsr"):
+                # Convert camelCase or underscores to words
+                # DrSashaHamdani → Dr Sasha Hamdani
+                spaced = re.sub(r"(?<=[a-z])(?=[A-Z])", " ", raw)
+                spaced = spaced.replace("_", " ").replace(".", ". ").strip()
+                spaced = re.sub(r"\s+", " ", spaced)
+                # Only accept if 2+ words
+                if len(spaced.split()) >= 2:
+                    return spaced
+
+    # --- Priority 2: og:description or twitter:description "with X" ---
+    for meta_prop in ("og:description", "twitter:description"):
+        tag = soup.find("meta", property=meta_prop) or soup.find("meta", attrs={"name": meta_prop})
+        if tag and tag.get("content"):
+            text = tag["content"]
+            m = re.search(
+                r"\bwith\s+((?:Dr\.?|Mr\.?|Mrs\.?|Ms\.?)?\s*[A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,3})\s*$",
+                text,
+            )
+            if m:
+                return m.group(1).strip()
+
+    # --- Priority 3: twitter:title / og:title "with X" ---
+    for meta_prop in ("twitter:title", "og:title"):
+        tag = soup.find("meta", attrs={"name": meta_prop}) or soup.find("meta", property=meta_prop)
+        if tag and tag.get("content"):
+            text = tag["content"]
+            m = re.search(
+                r"\bwith\s+((?:Dr\.?|Mr\.?|Mrs\.?|Ms\.?)?\s*[A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,3})\s*$",
+                text,
+            )
+            if m:
+                return m.group(1).strip()
+
+    # --- Priority 4: Intro paragraph patterns ---
+    intro_patterns = [
+        r"sitting down with\s+([A-Z][a-zA-Z'\-\.]+(?:\s+[A-Z][a-zA-Z'\-\.]+){0,3})",
+        r"talking to\s+([A-Z][a-zA-Z'\-\.]+(?:\s+[A-Z][a-zA-Z'\-\.]+){0,3})",
+        r"my friend,\s+([A-Z][a-zA-Z'\-]+(?:\s+[A-Z][a-zA-Z'\-]+){0,3})",
+    ]
+    for pattern in intro_patterns:
+        m = re.search(pattern, body_text)
+        if m:
+            candidate = m.group(1).strip()
+            if len(candidate.split()) >= 2:
+                return candidate
+
+    # --- Priority 5: "X's Top 10" heading ---
+    for h in soup.find_all(["h1", "h2", "h3", "h4"]):
+        text = h.get_text(strip=True)
+        if "top 10" in text.lower():
+            m = re.match(r"^(.+?)'?s?\s+Top 10", text, re.IGNORECASE)
+            if m:
+                candidate = m.group(1).strip()
+                if candidate.lower() not in ("maggie", "maggie sellers reum", "host"):
+                    return candidate
+
+    return ""
+
 def parse_episode(html, url):
     soup = BeautifulSoup(html, "html.parser")
 
@@ -78,28 +156,11 @@ def parse_episode(html, url):
     if not date:
         print(f"  WARNING: no date found on {url}")
 
-    # --- Guest name: from episode title first, heading fallback ---
-    guest_name = ""
-    m = re.search(
-        r"\bwith\s+([A-Z][a-zA-Z'\-\.]+(?:\s+[A-Z][a-zA-Z'\-\.]+){0,3})\s*$",
-        title,
-    )
-    if m:
-        guest_name = m.group(1).strip()
-
+    # --- Guest name: from episode title first ---
+    guest_name = extract_guest_name(soup, body_text, title)
     if not guest_name:
-        for h in soup.find_all(["h1", "h2", "h3", "h4"]):
-            text = h.get_text(strip=True)
-            if "top 10" in text.lower():
-                m2 = re.match(r"^(.+?)'?s?\s+Top 10", text, re.IGNORECASE)
-                if m2:
-                    candidate = m2.group(1).strip()
-                    if candidate.lower() not in ("maggie", "maggie sellers reum", "host"):
-                        guest_name = candidate
-                break
+    print(f"  WARNING: could not extract guest name from {url}")
 
-    if not guest_name:
-        print(f"  WARNING: could not extract guest name from {url}")
 
     # --- Find the guest's Top 10 heading ---
     top10_heading = None
