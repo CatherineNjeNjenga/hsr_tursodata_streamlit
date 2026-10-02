@@ -1,7 +1,7 @@
 import os
 import re
-import requests
 import hashlib
+import requests
 from bs4 import BeautifulSoup
 
 # ---------- CONFIG ----------
@@ -23,6 +23,7 @@ def fetch_page(url):
 
 # ---------- DISCOVERY ----------
 def discover_episode_urls():
+    """Scrape the HSR podcast listing page and return all /p/ episode URLs."""
     print(f"Fetching listing page: {PODCAST_LISTING_URL}")
     html = fetch_page(PODCAST_LISTING_URL)
     soup = BeautifulSoup(html, "html.parser")
@@ -48,14 +49,37 @@ def discover_episode_urls():
 def parse_episode(html, url):
     soup = BeautifulSoup(html, "html.parser")
 
-    # Header metadata
+    # --- Header metadata ---
     header_spans = soup.select("span._11r14xt1")
     title = header_spans[0].get_text(strip=True) if len(header_spans) > 0 else ""
-    date = header_spans[2].get_text(strip=True) if len(header_spans) > 2 else ""
 
-    # --- Guest name extraction ---
+    # --- Date: extract by pattern, not by position ---
+    date = ""
+    date_patterns = [
+        r"\b\d{4}-\d{2}-\d{2}\b",
+        r"\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]* \d{1,2},? \d{4}\b",
+        r"\b\d{1,2} (?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]* \d{4}\b",
+    ]
+    for span in header_spans:
+        text = span.get_text(strip=True)
+        for pattern in date_patterns:
+            m = re.search(pattern, text)
+            if m:
+                date = m.group(0)
+                break
+        if date:
+            break
+
+    if not date:
+        time_tag = soup.find("time")
+        if time_tag:
+            date = time_tag.get_text(strip=True) or time_tag.get("datetime", "")
+
+    if not date:
+        print(f"  WARNING: no date found on {url}")
+
+    # --- Guest name: from episode title first, heading fallback ---
     guest_name = ""
-    # Try the episode title: "...with Dr. Sasha Hamdani"
     m = re.search(
         r"\bwith\s+([A-Z][a-zA-Z'\-\.]+(?:\s+[A-Z][a-zA-Z'\-\.]+){0,3})\s*$",
         title,
@@ -63,7 +87,6 @@ def parse_episode(html, url):
     if m:
         guest_name = m.group(1).strip()
 
-    # Fallback: look for "X's Top 10" heading
     if not guest_name:
         for h in soup.find_all(["h1", "h2", "h3", "h4"]):
             text = h.get_text(strip=True)
@@ -86,7 +109,6 @@ def parse_episode(html, url):
         if "top 10" in text.lower():
             candidates.append(h)
 
-    # Prefer the one whose text contains the guest's first name
     if guest_name:
         first_name = guest_name.split()[0].lower()
         for h in candidates:
@@ -94,7 +116,6 @@ def parse_episode(html, url):
                 top10_heading = h
                 break
 
-    # Otherwise take the first candidate
     if top10_heading is None and candidates:
         top10_heading = candidates[0]
 
@@ -102,11 +123,10 @@ def parse_episode(html, url):
         print(f"  No 'Top 10' heading found on {url}")
         return []
 
-    # --- Collect div.j6zgbu0 blocks between this heading and the next h1/h2 ---
+    # --- Collect div.j6zgbu0 blocks between this heading and next h1/h2 ---
     target_blocks = []
     for elem in top10_heading.next_elements:
         name = getattr(elem, "name", None)
-        # Stop at the next top-level heading
         if name in ["h1", "h2"]:
             break
         if name == "div" and "j6zgbu0" in elem.get("class", []):
@@ -151,8 +171,7 @@ def parse_episode(html, url):
             else:
                 link_type = "Direct"
 
-        # Globally unique row_id based on source_url + index
-        # Using a hash so re-runs produce the same ID (idempotent)
+        # Deterministic, globally unique row_id
         row_id = int(hashlib.sha256(f"{url}#{i}".encode()).hexdigest()[:8], 16)
 
         rows.append({
@@ -169,6 +188,7 @@ def parse_episode(html, url):
         })
 
     return rows
+
 
 # ---------- TURSO ----------
 def turso_execute(sql, args=None):
