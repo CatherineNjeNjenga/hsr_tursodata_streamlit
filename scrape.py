@@ -60,17 +60,36 @@ def parse_episode(html, url):
     if m:
         guest_name = m.group(1)
 
-    # --- Each recommendation is a div.j6zgbu0 block ---
-    blocks = soup.select("div.j6zgbu0")
+    # --- Find the "Top 10" heading ---
+    top10_heading = None
+    for h in soup.find_all(["h1", "h2", "h3", "h4"]):
+        if "top 10" in h.get_text(strip=True).lower():
+            top10_heading = h
+            break
 
+    if not top10_heading:
+        print(f"  No 'Top 10' heading found on {url}")
+        return []
+
+    # --- Collect only the div.j6zgbu0 blocks that belong to this section ---
+    # Walk forward through the DOM, stopping at the next heading
+    target_blocks = []
+    for elem in top10_heading.next_elements:
+        # Stop when we reach another heading
+        if getattr(elem, "name", None) in ["h1", "h2", "h3", "h4"]:
+            break
+        # Collect recommendation blocks
+        if getattr(elem, "name", None) == "div" and "j6zgbu0" in elem.get("class", []):
+            target_blocks.append(elem)
+
+    # --- Parse each block ---
     rows = []
     row_num = 0
-    for block in blocks:
+    for block in target_blocks:
         spans = block.find_all("span", class_="hxnnnr0")
         if len(spans) < 2:
             continue
 
-        # Find the span that contains an <a> tag — that's the product
         product_name = ""
         product_link = ""
         description = ""
@@ -80,12 +99,10 @@ def parse_episode(html, url):
             if link:
                 product_name = link.get_text(strip=True)
                 product_link = link["href"]
-                # Description is typically the next span
                 if i + 1 < len(spans):
                     description = spans[i + 1].get_text(" ", strip=True)
                 break
 
-        # If no link was found, treat the block text as a plain recommendation
         if not product_name:
             full_text = block.get_text(" ", strip=True)
             cleaned = re.sub(r"^\d{1,2}[\.\)]?\s*", "", full_text).strip()
@@ -94,7 +111,6 @@ def parse_episode(html, url):
             product_name = cleaned[:80]
             description = cleaned
 
-        # Classify the link
         link_type = "None"
         link_status = "Placeholder"
         if product_link:
