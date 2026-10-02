@@ -55,35 +55,34 @@ def extract_guest_name(soup, body_text, title):
     5. "X's Top 10" heading
     """
     # --- Priority 1: og:image filename ---
-    # --- Priority 1: og:image filename ---
-og_image = soup.find("meta", property="og:image")
-if og_image and og_image.get("content"):
-    url = og_image["content"]
-    filename = url.split("/")[-1].split("?")[0]
+    og_image = soup.find("meta", property="og:image")
+    if og_image and og_image.get("content"):
+        url = og_image["content"]
+        filename = url.split("/")[-1].split("?")[0]
 
-    # Strip extension and HRS_ prefix
-    raw = re.sub(r"\.(png|jpg|jpeg)$", "", filename, flags=re.IGNORECASE)
-    raw = re.sub(r"^HRS_", "", raw, flags=re.IGNORECASE)
+        # Strip extension and HRS_ prefix
+        raw = re.sub(r"\.(png|jpg|jpeg)$", "", filename, flags=re.IGNORECASE)
+        raw = re.sub(r"^HRS_", "", raw, flags=re.IGNORECASE)
 
-    # Strip trailing _N or _N_ patterns
-    raw = re.sub(r"_\d+_?$", "", raw)
-    raw = raw.rstrip("_")
+        # Strip trailing _N or _N_ patterns
+        raw = re.sub(r"_\d+_?$", "", raw)
+        raw = raw.rstrip("_")
 
-    # If the name has underscores, convert them to spaces
-    raw = raw.replace("_", " ")
+        # Convert underscores and camelCase to spaces
+        raw = raw.replace("_", " ")
+        spaced = re.sub(r"(?<=[a-z])(?=[A-Z])", " ", raw)
 
-    # Insert spaces before capitals (camelCase → "Camel Case")
-    spaced = re.sub(r"(?<=[a-z])(?=[A-Z])", " ", raw)
+        # Collapse spaces
+        spaced = re.sub(r"\s+", " ", spaced).strip()
 
-    # Collapse multiple spaces and strip
-    spaced = re.sub(r"\s+", " ", spaced).strip()
+        # Strip trailing digits attached to a word (Ukeleghe1 → Ukeleghe)
+        spaced = re.sub(r"(\w)\d+$", r"\1", spaced)
 
-    # Restore periods in titles (Dr → Dr.)
-    spaced = re.sub(r"^(Dr|Mr|Mrs|Ms)\s", r"\1. ", spaced)
+        # Restore periods in titles
+        spaced = re.sub(r"^(Dr|Mr|Mrs|Ms)\s", r"\1. ", spaced)
 
-    # Reject generic names and one-word names
-    if spaced.lower() not in ("default", "cover", "image", "hsr") and len(spaced.split()) >= 2:
-        return spaced
+        if spaced.lower() not in ("default", "cover", "image", "hsr") and len(spaced.split()) >= 2:
+            return spaced
 
     # --- Priority 2: og:description / twitter:description ---
     for meta_prop in ("og:description", "twitter:description"):
