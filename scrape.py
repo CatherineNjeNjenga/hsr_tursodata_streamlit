@@ -55,26 +55,35 @@ def extract_guest_name(soup, body_text, title):
     5. "X's Top 10" heading
     """
     # --- Priority 1: og:image filename ---
-    og_image = soup.find("meta", property="og:image")
-    if og_image and og_image.get("content"):
-        url = og_image["content"]
-        filename = url.split("/")[-1].split("?")[0]
-        m = re.match(
-            r"^(?:HRS_)?(.+?)(?:_\d+)?\.(?:png|jpg|jpeg)$",
-            filename,
-            re.IGNORECASE,
-        )
-        if m:
-            raw = m.group(1)
-            if raw.lower() not in ("default", "cover", "image", "hsr"):
-                # Convert camelCase or underscores to words
-                spaced = re.sub(r"(?<=[a-z])(?=[A-Z])", " ", raw)
-                spaced = spaced.replace("_", " ").strip()
-                spaced = re.sub(r"\s+", " ", spaced)
-                # Restore periods in titles like "Dr"
-                spaced = re.sub(r"^(Dr|Mr|Mrs|Ms)\s", r"\1. ", spaced)
-                if len(spaced.split()) >= 2:
-                    return spaced
+    # --- Priority 1: og:image filename ---
+og_image = soup.find("meta", property="og:image")
+if og_image and og_image.get("content"):
+    url = og_image["content"]
+    filename = url.split("/")[-1].split("?")[0]
+
+    # Strip extension and HRS_ prefix
+    raw = re.sub(r"\.(png|jpg|jpeg)$", "", filename, flags=re.IGNORECASE)
+    raw = re.sub(r"^HRS_", "", raw, flags=re.IGNORECASE)
+
+    # Strip trailing _N or _N_ patterns
+    raw = re.sub(r"_\d+_?$", "", raw)
+    raw = raw.rstrip("_")
+
+    # If the name has underscores, convert them to spaces
+    raw = raw.replace("_", " ")
+
+    # Insert spaces before capitals (camelCase → "Camel Case")
+    spaced = re.sub(r"(?<=[a-z])(?=[A-Z])", " ", raw)
+
+    # Collapse multiple spaces and strip
+    spaced = re.sub(r"\s+", " ", spaced).strip()
+
+    # Restore periods in titles (Dr → Dr.)
+    spaced = re.sub(r"^(Dr|Mr|Mrs|Ms)\s", r"\1. ", spaced)
+
+    # Reject generic names and one-word names
+    if spaced.lower() not in ("default", "cover", "image", "hsr") and len(spaced.split()) >= 2:
+        return spaced
 
     # --- Priority 2: og:description / twitter:description ---
     for meta_prop in ("og:description", "twitter:description"):
